@@ -1,0 +1,335 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Broadway",
+        "volume": 44002,
+        "speed_limit_mph": 30,
+        "lanes": 4
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.984057,
+            40.762638
+          ],
+          [
+            -73.976037,
+            40.75993
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "5th Avenue",
+        "volume": 41666,
+        "speed_limit_mph": 25,
+        "lanes": 4
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.974669,
+            40.770533
+          ],
+          [
+            -73.976737,
+            40.765321
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "7th Avenue",
+        "volume": 38753,
+        "speed_limit_mph": 35,
+        "lanes": 3
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.983265,
+            40.757226
+          ],
+          [
+            -73.97957,
+            40.754535
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Park Avenue",
+        "volume": 29325,
+        "speed_limit_mph": 35,
+        "lanes": 6
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.987508,
+            40.76876
+          ],
+          [
+            -73.988471,
+            40.765225
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Lexington Avenue",
+        "volume": 34533,
+        "speed_limit_mph": 25,
+        "lanes": 2
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.985652,
+            40.774316
+          ],
+          [
+            -73.978703,
+            40.776056
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Madison Avenue",
+        "volume": 30239,
+        "speed_limit_mph": 35,
+        "lanes": 6
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.987055,
+            40.760034
+          ],
+          [
+            -73.982575,
+            40.759601
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "6th Avenue",
+        "volume": 37442,
+        "speed_limit_mph": 35,
+        "lanes": 2
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.987962,
+            40.757249
+          ],
+          [
+            -73.980758,
+            40.755287
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "8th Avenue",
+        "volume": 32050,
+        "speed_limit_mph": 30,
+        "lanes": 2
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.978497,
+            40.748978
+          ],
+          [
+            -73.97592,
+            40.751598
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "3rd Avenue",
+        "volume": 29173,
+        "speed_limit_mph": 30,
+        "lanes": 3
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.981489,
+            40.755761
+          ],
+          [
+            -73.981477,
+            40.758918
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "West Side Highway",
+        "volume": 52900,
+        "speed_limit_mph": 30,
+        "lanes": 2
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.980485,
+            40.756087
+          ],
+          [
+            -73.976148,
+            40.761448
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "FDR Drive",
+        "volume": 49065,
+        "speed_limit_mph": 30,
+        "lanes": 3
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.976084,
+            40.773
+          ],
+          [
+            -73.974872,
+            40.76855
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "42nd Street",
+        "volume": 33644,
+        "speed_limit_mph": 25,
+        "lanes": 6
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.984903,
+            40.756111
+          ],
+          [
+            -73.978897,
+            40.751397
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "34th Street",
+        "volume": 28164,
+        "speed_limit_mph": 30,
+        "lanes": 4
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.996906,
+            40.769945
+          ],
+          [
+            -73.993536,
+            40.767272
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "23rd Street",
+        "volume": 25346,
+        "speed_limit_mph": 30,
+        "lanes": 4
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.985794,
+            40.759227
+          ],
+          [
+            -73.98497,
+            40.755001
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "14th Street",
+        "volume": 27349,
+        "speed_limit_mph": 25,
+        "lanes": 2
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.982961,
+            40.757228
+          ],
+          [
+            -73.978424,
+            40.756581
+          ]
+        ]
+      }
+    }
+  ]
+}

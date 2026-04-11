@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="GeoAnalyst-AI — Intelligent geospatial site readiness scoring engine for commercial real estate assessment">
+    <title>GeoAnalyst-AI | Site Readiness Intelligence</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- App CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+    <!-- ═══ Header ═══ -->
+    <header id="main-header">
+        <div class="header-left">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="16" cy="16" r="14" stroke="url(#grad)" stroke-width="2.5" fill="none"/>
+                        <circle cx="16" cy="16" r="4" fill="url(#grad)"/>
+                        <path d="M16 4 L16 12 M16 20 L16 28 M4 16 L12 16 M20 16 L28 16" stroke="url(#grad)" stroke-width="1.5" stroke-linecap="round"/>
+                        <circle cx="16" cy="16" r="9" stroke="url(#grad)" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+                        <defs>
+                            <linearGradient id="grad" x1="0" y1="0" x2="32" y2="32">
+                                <stop offset="0%" stop-color="#06d6a0"/>
+                                <stop offset="100%" stop-color="#118ab2"/>
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </div>
+                <div class="logo-text">
+                    <h1>GeoAnalyst<span class="accent">-AI</span></h1>
+                    <span class="tagline">Site Readiness Intelligence</span>
+                </div>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="status-chip" id="status-chip">
+                <span class="status-dot"></span>
+                <span class="status-text">Ready</span>
+            </div>
+            <button class="btn-icon" id="btn-layers-toggle" title="Toggle Layer Panel">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="12,2 2,7 12,12 22,7"/>
+                    <polyline points="2,17 12,22 22,17"/>
+                    <polyline points="2,12 12,17 22,12"/>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- ═══ Main Layout ═══ -->
+    <main id="app-container">
+        <!-- Map -->
+        <div id="map-container">
+            <div id="map"></div>
+            <div class="map-overlay-hint" id="map-hint">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                Click anywhere on the map to score a site
+            </div>
+        </div>
+
+        <!-- Side Panel -->
+        <aside id="side-panel" class="panel-glass">
+            <!-- Input Section -->
+            <section class="panel-section" id="input-section">
+                <h2 class="section-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    Site Coordinates
+                </h2>
+                <form id="coord-form">
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label for="input-lat">Latitude</label>
+                            <input type="number" id="input-lat" step="0.0001" min="-90" max="90" placeholder="40.7580" value="40.7580">
+                        </div>
+                        <div class="input-group">
+                            <label for="input-lon">Longitude</label>
+                            <input type="number" id="input-lon" step="0.0001" min="-180" max="180" placeholder="-73.9855" value="-73.9855">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary" id="btn-score">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13,2 3,14 12,14 11,22 21,10 12,10"/></svg>
+                        Analyze Site
+                    </button>
+                </form>
+            </section>
+
+            <!-- Score Display -->
+            <section class="panel-section hidden" id="score-section">
+                <div class="score-header">
+                    <h2 class="section-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                        Site Readiness Score
+                    </h2>
+                    <span class="site-id" id="display-site-id"></span>
+                </div>
+
+                <!-- Score Gauge -->
+                <div class="score-gauge-container">
+                    <div class="score-gauge" id="score-gauge">
+                        <div class="gauge-ring">
+                            <svg viewBox="0 0 120 120">
+                                <circle cx="60" cy="60" r="52" class="gauge-bg"/>
+                                <circle cx="60" cy="60" r="52" class="gauge-fill" id="gauge-fill"
+                                        stroke-dasharray="326.73"
+                                        stroke-dashoffset="326.73"/>
+                            </svg>
+                        </div>
+                        <div class="gauge-center">
+                            <span class="gauge-value" id="gauge-value">0</span>
+                            <span class="gauge-label">/ 100</span>
+                        </div>
+                    </div>
+                    <div class="grade-badge" id="grade-badge">F</div>
+                </div>
+
+                <!-- Recommendation -->
+                <div class="recommendation-box" id="recommendation-box">
+                    <p id="recommendation-text"></p>
+                </div>
+
+                <!-- Hard Constraint Failures -->
+                <div class="constraint-failures hidden" id="constraint-failures">
+                    <div class="alert-banner alert-danger">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        <div id="constraint-list"></div>
+                    </div>
+                </div>
+
+                <!-- Data Gaps -->
+                <div class="data-gaps hidden" id="data-gaps">
+                    <div class="alert-banner alert-warning">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                        <div id="gaps-list"></div>
+                    </div>
+                </div>
+
+                <!-- Layer Breakdown -->
+                <div class="layer-breakdown" id="layer-breakdown">
+                    <h3 class="breakdown-title">Layer Breakdown</h3>
+                    <div id="layer-bars"></div>
+                </div>
+            </section>
+
+            <!-- Layer Controls -->
+            <section class="panel-section" id="layer-controls-section">
+                <h2 class="section-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="12,2 2,7 12,12 22,7"/>
+                        <polyline points="2,17 12,22 22,17"/>
+                        <polyline points="2,12 12,17 22,12"/>
+                    </svg>
+                    Map Layers
+                </h2>
+                <div id="layer-toggles"></div>
+            </section>
+
+            <!-- Isochrone Controls -->
+            <section class="panel-section" id="isochrone-section">
+                <h2 class="section-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    Isochrone Settings
+                </h2>
+                <div class="iso-controls">
+                    <div class="input-group">
+                        <label for="iso-profile">Travel Mode</label>
+                        <select id="iso-profile">
+                            <option value="driving-car">🚗 Driving</option>
+                            <option value="foot-walking">🚶 Walking</option>
+                            <option value="cycling-regular">🚴 Cycling</option>
+                        </select>
+                    </div>
+                    <div class="iso-toggle">
+                        <label class="toggle-label">
+                            <input type="checkbox" id="iso-visible" checked>
+                            <span class="toggle-slider"></span>
+                            Show Isochrone
+                        </label>
+                    </div>
+                </div>
+            </section>
+        </aside>
+    </main>
+
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay hidden" id="loading-overlay">
+        <div class="loader">
+            <div class="loader-ring"></div>
+            <span>Analyzing site...</span>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- App JS -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
