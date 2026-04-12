@@ -120,9 +120,176 @@ def _validate_layer(name: str, gdf: gpd.GeoDataFrame) -> bool:
     return True
 
 
+# ─────────────────────────────────────────────
+# Dynamic Data Fetching from OSM/Overpass API
+# ─────────────────────────────────────────────
+
+# Layers that can be fetched dynamically from OpenStreetMap
+DYNAMIC_LAYERS = {"transportation", "competition", "land_use"}
+
+# Layers that must remain local (curated data, no free API equivalent)
+LOCAL_ONLY_LAYERS = {"demographics", "environment"}
+
+# Ahmedabad bounding box for Overpass queries (S,W,N,E)
+OVERPASS_BBOX = "22.95,72.45,23.15,72.70"
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+
+
+def _fetch_from_overpass(layer_name: str, data_dir: str) -> gpd.GeoDataFrame:
+    """
+    Fetch geospatial data from OpenStreetMap via Overpass API.
+    Returns a GeoDataFrame, or empty GeoDataFrame on failure.
+    Caches successful results to local GeoJSON files for offline use.
+    """
+    import httpx
+    import json
+    from shapely.geometry import Point, LineString, Polygon, mapping
+    
+    queries = {
+        "transportation": f"""
+            [out:json][timeout:30];
+            (
+              way["highway"~"primary|secondary|tertiary|residential|motorway"]["name"]({OVERPASS_BBOX});
+            );
+            out body geom 500;
+        """,
+        "competition": f"""
+            [out:json][timeout:30];
+            (
+              node["shop"]["name"]({OVERPASS_BBOX});
+              node["amenity"~"restaurant|cafe|bank|fuel|pharmacy"]["name"]({OVERPASS_BBOX});
+            );
+            out body 500;
+        """,
+        "land_use": f"""
+            [out:json][timeout:30];
+            (
+              way["landuse"]["name"]({OVERPASS_BBOX});
+              way["landuse"]({OVERPASS_BBOX});
+              relation["landuse"]({OVERPASS_BBOX});
+            );
+            out body geom 200;
+        """,
+    }
+
+    query = queries.get(layer_name)
+    if not query:
+        return gpd.GeoDataFrame()
+
+    try:
+        logger.info(f"[Dynamic] Fetching '{layer_name}' from Overpass API...")
+        resp = httpx.post(OVERPASS_URL, data={"data": query}, timeout=35.0,
+                          headers={"User-Agent": "SiteIQ/2.0"})
+        if resp.status_code != 200:
+            logger.warning(f"[Dynamic] Overpass returned {resp.status_code} for '{layer_name}'")
+            return gpd.GeoDataFrame()
+
+        data = resp.json()
+        elements = data.get("elements", [])
+        if not elements:
+            logger.warning(f"[Dynamic] No elements returned for '{layer_name}'")
+            return gpd.GeoDataFrame()
+
+        features = []
+        for el in elements:
+            props = {}
+            tags = el.get("tags", {})
+
+            if layer_name == "transportation":
+                road_type = tags.get("highway", "residential")
+                props = {"road_type": road_type, "name": tags.get("name", "")}
+                geom_coords = el.get("geometry", [])
+                if not geom_coords:
+                    continue
+                coords = [(p["lon"], p["lat"]) for p in geom_coords]
+                if len(coords) < 2:
+                    continue
+                geometry = LineString(coords)
+
+            elif layer_name == "competition":
+                category = "competitor"
+                shop = tags.get("shop", "")
+                amenity = tags.get("amenity", "")
+                if shop:
+                    category = "competitor"
+                elif amenity in ("restaurant", "cafe"):
+                    category = "complementary"
+                elif amenity in ("bank", "fuel"):
+                    category = "anchor_tenant"
+                props = {
+                    "category": category,
+                    "brand": tags.get("name", tags.get("brand", "Unknown")),
+                }
+                if "lat" not in el or "lon" not in el:
+                    continue
+                geometry = Point(el["lon"], el["lat"])
+
+            elif layer_name == "land_use":
+                zone_raw = tags.get("landuse", "unknown")
+                zone_map = {
+                    "commercial": "commercial", "retail": "commercial",
+                    "residential": "residential", "industrial": "industrial",
+                    "recreation_ground": "park", "grass": "park",
+                    "farmland": "park", "forest": "park",
+                }
+                zone_type = zone_map.get(zone_raw, zone_raw)
+                props = {"zone_type": zone_type}
+                geom_coords = el.get("geometry", [])
+                if not geom_coords:
+                    continue
+                coords = [(p["lon"], p["lat"]) for p in geom_coords]
+                if len(coords) < 3:
+                    continue
+                # Close the polygon if not closed
+                if coords[0] != coords[-1]:
+                    coords.append(coords[0])
+                try:
+                    geometry = Polygon(coords)
+                except Exception:
+                    continue
+            else:
+                continue
+
+            features.append({
+                "type": "Feature",
+                "properties": props,
+                "geometry": mapping(geometry)
+            })
+
+        if not features:
+            return gpd.GeoDataFrame()
+
+        # Build GeoJSON and convert to GeoDataFrame
+        geojson = {"type": "FeatureCollection", "features": features}
+        gdf = gpd.GeoDataFrame.from_features(geojson, crs="EPSG:4326")
+
+        # Cache to local file for offline fallback
+        cache_path = os.path.join(data_dir, f"_osm_cache_{layer_name}.geojson")
+        try:
+            with open(cache_path, "w") as f:
+                json.dump(geojson, f)
+            logger.info(f"[Dynamic] Cached {len(features)} features for '{layer_name}' to {cache_path}")
+        except Exception as e:
+            logger.warning(f"[Dynamic] Could not cache '{layer_name}': {e}")
+
+        return gdf
+
+    except Exception as e:
+        logger.warning(f"[Dynamic] Overpass fetch failed for '{layer_name}': {e}")
+        return gpd.GeoDataFrame()
+
+
 def load_all_layers(data_dir: str) -> dict[str, gpd.GeoDataFrame]:
     """
-    Main ingestion function. Will load 5 core categories, reproject and validate.
+    Main ingestion function. Will load 5 core categories.
+    
+    For dynamic layers (transportation, competition, land_use):
+      1. Try fetching live data from Overpass API (OpenStreetMap)
+      2. Fall back to OSM cache file if available
+      3. Fall back to original local GeoJSON file
+    
+    For local-only layers (demographics, environment):
+      Load from local GeoJSON files (curated census/risk data)
     
     Args:
         data_dir (str): Directory where spatial files are stored.
@@ -137,10 +304,24 @@ def load_all_layers(data_dir: str) -> dict[str, gpd.GeoDataFrame]:
         return loaded_layers
 
     for layer_name, filename in DEFAULT_FILENAMES.items():
-        filepath = os.path.join(data_dir, filename)
-        logger.info(f"Loading '{layer_name}' layer from {filepath}...")
+        gdf = gpd.GeoDataFrame()
         
-        gdf = _read_file(filepath)
+        # For dynamic layers, attempt live fetch from OSM first
+        if layer_name in DYNAMIC_LAYERS:
+            gdf = _fetch_from_overpass(layer_name, data_dir)
+            
+            if gdf.empty:
+                # Try cached OSM file
+                cache_path = os.path.join(data_dir, f"_osm_cache_{layer_name}.geojson")
+                if os.path.exists(cache_path):
+                    logger.info(f"[Dynamic] Using cached OSM data for '{layer_name}'")
+                    gdf = _read_file(cache_path)
+        
+        # Fallback to original local file
+        if gdf.empty:
+            filepath = os.path.join(data_dir, filename)
+            logger.info(f"Loading '{layer_name}' layer from {filepath}...")
+            gdf = _read_file(filepath)
         
         # Reprojection & CRS assignment
         if not gdf.empty:

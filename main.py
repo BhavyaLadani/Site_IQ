@@ -9,6 +9,7 @@ import io
 import os
 import base64
 import time
+import textwrap
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
@@ -25,9 +26,11 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from auth import (
+    init_db,
     create_user, authenticate_user, create_token,
     get_current_user, require_auth,
-    save_contact, save_analysis, get_user_history
+    save_contact, save_analysis, get_user_history,
+    get_login_history, get_all_users, get_all_login_history
 )
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -57,6 +60,9 @@ limiter = Limiter(key_func=get_remote_address)
 # ─────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize PostgreSQL tables (users, login_history, contacts, analysis_history)
+    init_db()
+
     print("[Startup] Loading geospatial datasets into memory...")
     app.state.layers = load_all_layers(DATA_DIR)
     loaded = [k for k, v in app.state.layers.items() if not v.empty]
@@ -119,6 +125,15 @@ class BatchScoreRequest(BaseModel):
     use_case: Optional[str] = "retail"
 
 
+class SuggestRequest(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    radius_km: float = 2.0
+    current_score: int
+    config: Optional[Dict[str, float]] = None
+    use_case: Optional[str] = "retail"
+
+
 class IsochroneRequest(BaseModel):
     lat: float
     lon: float
@@ -131,6 +146,155 @@ DATA_BBOX = {
     "min_lat": 22.95, "max_lat": 23.15,
     "min_lon": 72.45, "max_lon": 72.70
 }
+
+# Use-case weight presets (shared with frontend)
+USE_CASE_CONFIGS = {
+    "retail":      {"demographics": 0.30, "transportation": 0.25, "competition": 0.20, "land_use": 0.15, "environment": 0.10},
+    "warehouse":   {"demographics": 0.10, "transportation": 0.40, "competition": 0.10, "land_use": 0.25, "environment": 0.15},
+    "ev_charging": {"demographics": 0.20, "transportation": 0.35, "competition": 0.15, "land_use": 0.20, "environment": 0.10},
+    "telecom":     {"demographics": 0.15, "transportation": 0.20, "competition": 0.10, "land_use": 0.25, "environment": 0.30},
+}
+
+# In-memory landmark cache (filled on first request)
+_landmark_cache: dict | None = None
+_landmark_cache_time: float = 0
+
+
+# ─────────────────────────────────────────────
+# 0a. GET /config — Dynamic configuration
+# ─────────────────────────────────────────────
+@app.get("/config")
+async def config_endpoint():
+    """Return all dynamic configuration used by the frontend."""
+    from config import GRADE_THRESHOLDS
+    return {
+        "coverage_bbox": DATA_BBOX,
+        "layer_weights": LAYER_WEIGHTS,
+        "use_case_configs": USE_CASE_CONFIGS,
+        "grade_thresholds": GRADE_THRESHOLDS,
+        "search_radius_km": 2.0,
+        "demo_center": {"lat": 23.0225, "lon": 72.5714, "city": "Ahmedabad, Gujarat"},
+    }
+
+
+# ─────────────────────────────────────────────
+# 0b. GET /stats — Live system statistics
+# ─────────────────────────────────────────────
+@app.get("/stats")
+async def stats_endpoint(request: Request):
+    """Return live system statistics for the homepage stats banner."""
+    layers = getattr(request.app.state, "layers", {})
+    loaded_count = sum(1 for v in layers.values() if not v.empty) if layers else 0
+    total_features = sum(len(v) for v in layers.values() if not v.empty) if layers else 0
+    return {
+        "search_radius": "2km",
+        "analysis_layers": f"{loaded_count}+",
+        "grade_system": "A–F",
+        "analysis_speed": "< 2s",
+        "total_features": total_features,
+        "loaded_layers": loaded_count,
+        "coverage_area": "Ahmedabad Metro",
+    }
+
+
+# ─────────────────────────────────────────────
+# 0c. GET /landmarks — Dynamic Ahmedabad landmarks from OSM/Overpass
+# ─────────────────────────────────────────────
+@app.get("/landmarks")
+async def landmarks_endpoint():
+    """
+    Return Ahmedabad landmarks fetched from Overpass API (OpenStreetMap).
+    Results are cached in memory for 6 hours.
+    Falls back to a curated set if the API is unreachable.
+    """
+    global _landmark_cache, _landmark_cache_time
+
+    # Return cache if fresh (6 hours TTL)
+    if _landmark_cache and (time.time() - _landmark_cache_time) < 21600:
+        return _landmark_cache
+
+    # Curated fallback landmarks
+    fallback = {
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature", "properties": {"name": "SG Highway", "type": "highway"}, "geometry": {"type": "Point", "coordinates": [72.5169, 23.0469]}},
+            {"type": "Feature", "properties": {"name": "GIFT City", "type": "landmark"}, "geometry": {"type": "Point", "coordinates": [72.6704, 23.1624]}},
+            {"type": "Feature", "properties": {"name": "Satellite", "type": "area"}, "geometry": {"type": "Point", "coordinates": [72.5241, 23.0220]}},
+            {"type": "Feature", "properties": {"name": "Navrangpura", "type": "area"}, "geometry": {"type": "Point", "coordinates": [72.5601, 23.0416]}},
+            {"type": "Feature", "properties": {"name": "Bodakdev", "type": "area"}, "geometry": {"type": "Point", "coordinates": [72.5063, 23.0390]}},
+            {"type": "Feature", "properties": {"name": "Prahlad Nagar", "type": "area"}, "geometry": {"type": "Point", "coordinates": [72.5060, 23.0130]}},
+            {"type": "Feature", "properties": {"name": "Vastrapur", "type": "area"}, "geometry": {"type": "Point", "coordinates": [72.5270, 23.0340]}},
+            {"type": "Feature", "properties": {"name": "Thaltej", "type": "area"}, "geometry": {"type": "Point", "coordinates": [72.4990, 23.0570]}},
+            {"type": "Feature", "properties": {"name": "Chandkheda", "type": "area"}, "geometry": {"type": "Point", "coordinates": [72.5940, 23.1100]}},
+            {"type": "Feature", "properties": {"name": "Gota", "type": "area"}, "geometry": {"type": "Point", "coordinates": [72.5490, 23.1030]}},
+            {"type": "Feature", "properties": {"name": "Maninagar", "type": "area"}, "geometry": {"type": "Point", "coordinates": [72.6082, 22.9956]}},
+            {"type": "Feature", "properties": {"name": "Bopal", "type": "area"}, "geometry": {"type": "Point", "coordinates": [72.4680, 23.0190]}},
+            {"type": "Feature", "properties": {"name": "CG Road", "type": "landmark"}, "geometry": {"type": "Point", "coordinates": [72.5604, 23.0285]}},
+            {"type": "Feature", "properties": {"name": "Paldi", "type": "area"}, "geometry": {"type": "Point", "coordinates": [72.5770, 23.0060]}},
+            {"type": "Feature", "properties": {"name": "Iskon", "type": "landmark"}, "geometry": {"type": "Point", "coordinates": [72.5074, 23.0297]}},
+        ]
+    }
+
+    try:
+        # Query Overpass API for notable places in Ahmedabad
+        overpass_query = """
+        [out:json][timeout:10];
+        (
+          node["place"~"suburb|neighbourhood"]["name"](22.95,72.45,23.15,72.70);
+          node["highway"="primary"]["name"](22.95,72.45,23.15,72.70);
+          node["amenity"~"university|hospital"]["name"](22.95,72.45,23.15,72.70);
+          node["tourism"~"attraction|museum"]["name"](22.95,72.45,23.15,72.70);
+        );
+        out center 50;
+        """
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://overpass-api.de/api/interpreter",
+                data={"data": overpass_query},
+                headers={"User-Agent": "SiteIQ/2.0"}
+            )
+            if resp.status_code != 200:
+                _landmark_cache = fallback
+                _landmark_cache_time = time.time()
+                return fallback
+
+            data = resp.json()
+            features = []
+            seen_names = set()
+            for el in data.get("elements", []):
+                name = el.get("tags", {}).get("name")
+                if not name or name in seen_names:
+                    continue
+                seen_names.add(name)
+
+                # Classify type
+                tags = el.get("tags", {})
+                place = tags.get("place", "")
+                ltype = "area" if place in ("suburb", "neighbourhood") else "landmark"
+                if tags.get("highway"):
+                    ltype = "highway"
+
+                features.append({
+                    "type": "Feature",
+                    "properties": {"name": name, "type": ltype},
+                    "geometry": {"type": "Point", "coordinates": [el["lon"], el["lat"]]}
+                })
+
+            if len(features) < 5:
+                # Too few results, use fallback + whatever we got
+                result = fallback
+            else:
+                result = {"type": "FeatureCollection", "features": features[:50]}
+
+            _landmark_cache = result
+            _landmark_cache_time = time.time()
+            return result
+
+    except Exception as e:
+        print(f"[Landmarks] Overpass API failed: {e}, using fallback")
+        _landmark_cache = fallback
+        _landmark_cache_time = time.time()
+        return fallback
 
 
 # ─────────────────────────────────────────────
@@ -202,6 +366,7 @@ async def score_endpoint(req: ScoreRequest, request: Request):
         lat=req.lat,
         lon=req.lon,
         weights=custom_weights,
+        use_case=req.use_case,
         include_isochrone=req.include_isochrone,
     )
     return result
@@ -210,8 +375,8 @@ async def score_endpoint(req: ScoreRequest, request: Request):
 # ─────────────────────────────────────────────
 # 2. POST /batch_score — Parallel scoring
 # ─────────────────────────────────────────────
-async def _run_score_async(lat: float, lon: float, weights: dict, loop) -> dict:
-    return await loop.run_in_executor(None, score_site, lat, lon, None, weights, False)
+async def _run_score_async(lat: float, lon: float, weights: dict, use_case: str, loop) -> dict:
+    return await loop.run_in_executor(None, score_site, lat, lon, None, weights, use_case, False)
 
 
 @app.post("/batch_score")
@@ -221,7 +386,7 @@ async def batch_score_endpoint(req: BatchScoreRequest, request: Request):
     loop = asyncio.get_running_loop()
 
     tasks = [
-        _run_score_async(float(p["lat"]), float(p["lon"]), weights, loop)
+        _run_score_async(float(p["lat"]), float(p["lon"]), weights, req.use_case, loop)
         for p in req.points
         if "lat" in p and "lon" in p
     ]
@@ -234,6 +399,74 @@ async def batch_score_endpoint(req: BatchScoreRequest, request: Request):
         else:
             output.append(r)
     return {"results": output, "count": len(output)}
+
+
+# ─────────────────────────────────────────────
+# 2.5 POST /suggest_nearby — Find better locations
+# ─────────────────────────────────────────────
+@app.post("/suggest_nearby")
+async def suggest_nearby_endpoint(req: SuggestRequest):
+    """Search within a radius to find locations with a higher score."""
+    import math
+    
+    # 1 deg lat = ~111 km. 1 deg lon = ~111 * cos(lat) km
+    lat_offset = req.radius_km / 111.0
+    lon_offset = req.radius_km / (111.0 * math.cos(math.radians(req.lat)))
+    
+    # Create a 5x5 grid (25 points) around the center
+    lats = np.linspace(req.lat - lat_offset, req.lat + lat_offset, 5)
+    lons = np.linspace(req.lon - lon_offset, req.lon + lon_offset, 5)
+    
+    points = []
+    for lat in lats:
+        for lon in lons:
+            # Skip the exact center
+            if abs(lat - req.lat) < 1e-5 and abs(lon - req.lon) < 1e-5:
+                continue
+            
+            # Keep only points roughly within the circle (distance check)
+            d_lat = (lat - req.lat) * 111.0
+            d_lon = (lon - req.lon) * 111.0 * math.cos(math.radians(req.lat))
+            dist_km = math.sqrt(d_lat**2 + d_lon**2)
+            
+            if dist_km <= req.radius_km:
+                points.append({"lat": lat, "lon": lon, "dist_km": dist_km})
+    
+    # Early cutoff if no points
+    if not points:
+        return {"suggestions": []}
+        
+    weights = req.config or LAYER_WEIGHTS.copy()
+    loop = asyncio.get_running_loop()
+    
+    # Score in parallel using executor
+    tasks = [
+        _run_score_async(float(p["lat"]), float(p["lon"]), weights, req.use_case, loop)
+        for p in points
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    suggestions = []
+    for i, res in enumerate(results):
+        if not isinstance(res, Exception):
+            score = res.get("composite_score", 0)
+            if score > req.current_score:
+                # Add distance info to the suggestion
+                res["distance_km"] = round(points[i]["dist_km"], 2)
+                
+                # Fetch a basic location name if possible
+                try:
+                    res["_locationName"] = f"{res['coordinates']['lat']:.3f}, {res['coordinates']['lon']:.3f}"
+                except:
+                    pass
+                    
+                suggestions.append(res)
+                
+    # Sort descending by score, take top 3
+    suggestions.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
+    top_suggestions = suggestions[:3]
+    
+    return {"suggestions": top_suggestions}
 
 
 # ─────────────────────────────────────────────
@@ -351,7 +584,7 @@ async def isochrone_endpoint(req: IsochroneRequest):
 # 6. GET /export/{site_id} — Professional PDF
 # ─────────────────────────────────────────────
 @app.get("/export/{site_id}")
-async def export_endpoint(site_id: str, lat: float = 23.03, lon: float = 72.56):
+async def export_endpoint(site_id: str, lat: float = 23.03, lon: float = 72.56, location_name: str = "Ahmedabad Metro"):
     """Generate a comprehensive PDF report with charts, tables, and use-case analysis."""
     from reportlab.lib.utils import ImageReader
     from datetime import datetime
@@ -446,7 +679,8 @@ async def export_endpoint(site_id: str, lat: float = 23.03, lon: float = 72.56):
     p.drawString(60, y, f"Latitude: {lat:.6f}")
     p.drawString(250, y, f"Longitude: {lon:.6f}")
     y -= 15
-    p.drawString(60, y, f"Coverage Area: Chicago Metro (41.64-42.02N, -87.94 to -87.52E)")
+    # Automatically wrap address if it's too long
+    p.drawString(60, y, f"Address: {location_name}")
 
     # --- Composite Score Badge ---
     y -= 35
@@ -583,23 +817,12 @@ async def export_endpoint(site_id: str, lat: float = 23.03, lon: float = 72.56):
         p.setFillColorRGB(0.1, 0.1, 0.1)
         y -= 16
 
-    # AI Reasoning
-    y -= 20
-    p.setFont("Helvetica-Bold", 13)
-    p.drawString(40, y, "7. AI Reasoning Trace")
-    y -= 16
-    p.setFont("Courier", 7)
-    p.setFillColorRGB(0.3, 0.3, 0.35)
-    for line in reasoning[:25]:
-        if y < 60:
-            break
-        p.drawString(50, y, str(line)[:100])
-        y -= 10
+
 
     # Footer
     p.setFillColorRGB(0.5, 0.5, 0.5)
     p.setFont("Helvetica", 7)
-    p.drawCentredString(w / 2, 30, f"GeoAnalyst AI - Site Readiness Report - {now} - Page 2")
+    p.drawCentredString(w / 2, 30, f"GeoAnalyst AI - Site Readiness Report - {now}")
 
     p.showPage()
     p.save()
@@ -608,7 +831,12 @@ async def export_endpoint(site_id: str, lat: float = 23.03, lon: float = 72.56):
     return Response(
         content=pdf_buf.getvalue(),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=site_report_{site_id}.pdf"}
+        headers={
+            "Content-Disposition": f"attachment; filename=site_report_{site_id}.pdf",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
     )
 
 # ═════════════════════════════════════════════
@@ -642,7 +870,7 @@ async def signup(req: SignupRequest):
 
 @app.post("/auth/login")
 async def login(req: LoginRequest):
-    """Login and receive JWT token."""
+    """Login and receive JWT token. Records login date and time in login_history."""
     user = authenticate_user(req.email, req.password)
     token = create_token(user["id"], user["email"], user["name"])
     return {"token": token, "user": {"id": user["id"], "name": user["name"], "email": user["email"]}}
@@ -697,116 +925,31 @@ async def save_history_endpoint(
 
 
 # ═════════════════════════════════════════════
-# DATABASE ADMIN VIEWER
+# USER & LOGIN HISTORY ENDPOINTS
 # ═════════════════════════════════════════════
-@app.get("/admin/db")
-async def db_admin():
-    """Built-in database viewer — shows all tables and data."""
-    import psycopg2
-    import psycopg2.extras
-    from auth import DB_CONNECTION_STRING
 
-    try:
-        conn = psycopg2.connect(DB_CONNECTION_STRING)
-        c = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+@app.get("/auth/login-history")
+async def login_history_endpoint(user=Depends(require_auth)):
+    """Get login history for the current logged-in user."""
+    user_id = int(user["sub"])
+    records = get_login_history(user_id)
+    return {"user_id": user_id, "login_count": len(records), "history": records}
 
-        # Get all tables in public schema
-        c.execute("""
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_type = 'BASE TABLE'
-        """)
-        tables = [r[0] for r in c.fetchall()]
-    except Exception as e:
-        return Response(content=f"<h1>Database Connection Error</h1><p>{str(e)}</p>", status_code=500)
 
-    html = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SiteIQ DB Admin</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0a0f1a; color: #e2e8f0; padding: 24px; }
-  h1 { font-size: 22px; margin-bottom: 6px; }
-  .subtitle { color: #64748b; font-size: 13px; margin-bottom: 24px; }
-  .stats { display: flex; gap: 12px; margin-bottom: 24px; }
-  .stat { background: #111827; border: 1px solid #1e293b; border-radius: 12px; padding: 16px 20px; flex: 1; }
-  .stat-num { font-size: 28px; font-weight: 800; color: #3b82f6; }
-  .stat-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
-  .table-card { background: #111827; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 20px; overflow: hidden; }
-  .table-header { padding: 14px 20px; border-bottom: 1px solid #1e293b; display: flex; align-items: center; justify-content: space-between; }
-  .table-name { font-weight: 700; font-size: 15px; }
-  .table-count { background: #1e293b; padding: 3px 10px; border-radius: 20px; font-size: 11px; color: #94a3b8; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th { background: #0f172a; text-align: left; padding: 10px 14px; font-size: 10px; text-transform: uppercase;
-       letter-spacing: 0.5px; color: #64748b; border-bottom: 1px solid #1e293b; }
-  td { padding: 10px 14px; border-bottom: 1px solid #1e293b; max-width: 250px; overflow: hidden;
-       text-overflow: ellipsis; white-space: nowrap; color: #cbd5e1; }
-  tr:hover td { background: #1e293b40; }
-  .empty { padding: 24px; text-align: center; color: #475569; font-size: 13px; }
-  .grade-A { color: #4ade80; font-weight: 700; } .grade-B { color: #34d399; font-weight: 700; }
-  .grade-C { color: #fbbf24; font-weight: 700; } .grade-D { color: #fb923c; font-weight: 700; }
-  .grade-F { color: #f87171; font-weight: 700; }
-  .refresh { position: fixed; bottom: 20px; right: 20px; background: #3b82f6; color: white; border: none;
-             padding: 10px 20px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; }
-  .refresh:hover { background: #2563eb; }
-  .pw { color: #475569; font-style: italic; }
-</style>
-</head>
-<body>
-<h1>🗄️ SiteIQ Database Admin</h1>
-<p class="subtitle">PostgreSQL database — Site_IQ | Auto-refresh: <a href="/admin/db" style="color:#3b82f6">Reload</a></p>
-"""
+@app.get("/admin/users")
+async def admin_users_endpoint():
+    """Get all registered users with signup date/time and login stats."""
+    users = get_all_users()
+    return {"total_users": len(users), "users": users}
 
-    # Stats
-    table_counts = {}
-    for t in tables:
-        c.execute(f"SELECT count(*) FROM {t}")
-        table_counts[t] = c.fetchone()[0]
 
-    html += '<div class="stats">'
-    for t in tables:
-        html += f'<div class="stat"><div class="stat-num">{table_counts[t]}</div><div class="stat-label">{t}</div></div>'
-    html += '</div>'
+@app.get("/admin/login-history")
+async def admin_login_history_endpoint(limit: int = 100):
+    """Get all login records across all users with date, time, and IP."""
+    records = get_all_login_history(limit=limit)
+    return {"total_records": len(records), "history": records}
 
-    # Table data
-    for t in tables:
-        c.execute(f"SELECT * FROM {t} ORDER BY id DESC LIMIT 50")
-        rows = c.fetchall()
-        cols = [desc[0] for desc in c.description] if c.description else []
 
-        html += f'<div class="table-card"><div class="table-header">'
-        html += f'<span class="table-name">{t}</span>'
-        html += f'<span class="table-count">{table_counts[t]} rows</span></div>'
-
-        if not rows:
-            html += '<div class="empty">No data yet</div>'
-        else:
-            html += '<table><thead><tr>'
-            for col in cols:
-                html += f'<th>{col}</th>'
-            html += '</tr></thead><tbody>'
-            for row in rows:
-                html += '<tr>'
-                for i, val in enumerate(row):
-                    col_name = cols[i] if i < len(cols) else ''
-                    cell = str(val) if val is not None else '-'
-                    if col_name == 'password_hash':
-                        cell = '<span class="pw">••••••••</span>'
-                    elif col_name == 'grade' and val:
-                        cell = f'<span class="grade-{val}">{val}</span>'
-                    elif col_name == 'layer_scores' and val and len(str(val)) > 40:
-                        cell = str(val)[:40] + '...'
-                    html += f'<td>{cell}</td>'
-                html += '</tr>'
-            html += '</tbody></table>'
-        html += '</div>'
-
-    html += '<button class="refresh" onclick="location.reload()">🔄 Refresh</button></body></html>'
-    conn.close()
-    return Response(content=html, media_type="text/html")
 
 
 if __name__ == "__main__":

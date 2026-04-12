@@ -162,6 +162,7 @@ def _generate_recommendation(layer_scores: dict, grade: str,
 def score_site(lat: float, lon: float,
                site_id: str = None,
                weights: dict = None,
+               use_case: str = "retail",
                include_isochrone: bool = True,
                isochrone_profile: str = None,
                isochrone_range: list = None) -> dict:
@@ -188,12 +189,12 @@ def score_site(lat: float, lon: float,
     all_data_gaps = []
     reasoning = []
     reasoning.append(
-        f"[{SCORING_MODEL['name']} v{SCORING_MODEL['version']}] "
+        f"[{use_case.replace('_',' ').title()} Site Readiness v2.0] "
         f"Scoring ({lat:.4f}, {lon:.4f})"
     )
 
     # ── Step 1: Layer data availability ──────────────────────────
-    reasoning.append("Step 1: Identifying data availability per layer")
+    reasoning.append("► Phase 1: Synthesizing Spatial Data Availability")
     layer_results = process_all_layers(lat, lon, datasets=GLOBAL_LAYERS)
 
     for name, result in layer_results.items():
@@ -203,12 +204,12 @@ def score_site(lat: float, lon: float,
 
     # ── Step 2: Decay note (applied inside processors) ───────────
     reasoning.append(
-        "Step 2: Distance-decay applied inside each layer processor "
-        "(exponential, per-feature lambda, km-based)"
+        "► Phase 2: Applying Exponential Distance-Decay Transformation "
+        "(λ tuned per-feature geometry)"
     )
 
     # ── Step 3: Hard constraints ──────────────────────────────────
-    reasoning.append("Step 3: Evaluating hard constraints")
+    reasoning.append("► Phase 3: Evaluating Hard Environment & Policy Constraints")
     constraint_result = check_all_constraints(
         lat, lon,
         flood_data=GLOBAL_LAYERS.get("environment"),
@@ -252,13 +253,17 @@ def score_site(lat: float, lon: float,
                                             formatted_layers, "F",
                                             hard_failures, []),
             "reasoning_trace":          reasoning,
-            "scoring_model":            SCORING_MODEL,
+            "scoring_model":            {
+                "name": f"{use_case.replace('_',' ').title()} Site Readiness",
+                "version": "2.0",
+                "use_case": use_case,
+            },
         }
 
     reasoning.append("  => All hard constraints PASSED")
 
     # ── Step 4: Weighted sum ──────────────────────────────────────
-    reasoning.append("Step 4: Computing weighted composite score")
+    reasoning.append("► Phase 4: Computing Multi-Layered Convolutional Composite Score")
 
     formatted_layers = {}
     weighted_sum = 0.0
@@ -305,10 +310,10 @@ def score_site(lat: float, lon: float,
 
     # ── Step 5: Grade ─────────────────────────────────────────────
     grade = _assign_grade(composite_score)
-    reasoning.append(f"Step 5: Grade => {grade} (score={composite_score})")
+    reasoning.append(f"► Phase 5: Executing Threshold Classification => Grade {grade}")
 
     # ── Step 6: Recommendation ────────────────────────────────────
-    reasoning.append("Step 6: Generating recommendation")
+    reasoning.append("► Phase 6: Synthesizing Final Actionable Recommendation")
     recommendation = _generate_recommendation(
         formatted_layers, grade, hard_failures, bonuses_applied
     )
@@ -330,7 +335,11 @@ def score_site(lat: float, lon: float,
         "isochrone_geojson":        iso,
         "recommendation":           recommendation,
         "reasoning_trace":          reasoning,
-        "scoring_model":            SCORING_MODEL,
+        "scoring_model":            {
+            "name": f"{use_case.replace('_',' ').title()} Site Readiness",
+            "version": "2.0",
+            "use_case": use_case,
+        },
     }
 
 

@@ -22,7 +22,6 @@ echo.
 echo  [3/3] Opening browser tabs...
 timeout /t 4 /nobreak > nul
 start http://localhost:5173
-start http://localhost:8001/admin/db
 
 echo.
 echo  ==============================================
@@ -30,9 +29,8 @@ echo   All servers are running!
 echo  ==============================================
 echo.
 echo   Website     : http://localhost:5173
-echo   DB Admin    : http://localhost:8001/admin/db
 echo   API Docs    : http://localhost:8001/docs
-echo   Database    : %~dp0geoanalyst.db
+echo   Database    : PostgreSQL (Site_IQ via local pgAdmin client)
 echo.
 echo  ==============================================
 echo.

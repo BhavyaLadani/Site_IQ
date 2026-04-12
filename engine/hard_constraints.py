@@ -197,8 +197,8 @@ def check_commercial_zoning(lat: float, lon: float,
     if zone_value not in VALID:
         return {
             "passed": False,
-            "failure": (f"Zoning class '{zone_value}' is not commercially "
-                        f"viable — required: {['C1','C2','MX','TC']}"),
+            "failure": (f"Zoning class '{zone_value}' is restricted and not "
+                        f"commercially viable for new site construction."),
             "data_available": True,
             "zone_found": zone_value,
         }

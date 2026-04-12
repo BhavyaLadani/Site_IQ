@@ -10,15 +10,15 @@ interface InteractiveMapProps {
 }
 
 const INITIAL_VIEW_STATE: MapViewState = {
-  latitude: 40.7580,
-  longitude: -73.9855,
-  zoom: 13,
+  latitude: 23.03,
+  longitude: 72.57,
+  zoom: 12,
   pitch: 45,
   bearing: 0
 };
 
 // MapLibre compatible dark basemap style
-const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
 
 interface HexDataItem {
   hex: string;
