@@ -161,5 +161,5 @@ INGESTION_CONFIG = {
     "h3_tiling_resolution": 8,
     "auto_tile_threshold": 100000,
     "pg_cache_enabled": False,
-    "pg_connection_string": "postgresql://postgres:password@localhost:5432/geoanalyst",
+    "pg_connection_string": "postgresql://postgres:postgres@localhost:5432/Site_IQ",
 }

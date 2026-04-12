@@ -6,7 +6,7 @@ services:
     ports:
       - "8000:80"
     environment:
-      - DATABASE_URL=postgres://geo_user:geo_pass@db:5432/geo_db
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/Site_IQ
       - REDIS_URL=redis://redis:6379/0
       - ENVIRONMENT=production
     depends_on:
@@ -20,15 +20,15 @@ services:
   db:
     image: postgis/postgis:15-3.3
     environment:
-      - POSTGRES_USER=geo_user
-      - POSTGRES_PASSWORD=geo_pass
-      - POSTGRES_DB=geo_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=Site_IQ
     ports:
       - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U geo_user"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5

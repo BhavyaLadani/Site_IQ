@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI):
     loaded = [k for k, v in app.state.layers.items() if not v.empty]
     print(f"[Startup] Loaded layers: {loaded}")
 
-    db_url = os.getenv("DATABASE_URL", "postgres://geo_user:geo_pass@localhost:5432/geo_db")
+    db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/Site_IQ")
     try:
         app.state.pool = await asyncpg.create_pool(db_url, min_size=2, max_size=10, timeout=5)
         print("[Startup] PostGIS pool connected.")

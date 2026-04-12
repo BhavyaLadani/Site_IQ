@@ -25,7 +25,7 @@ ACCESS_TOKEN_EXPIRE_HOURS = 24
 security = HTTPBearer(auto_error=False)
 
 # PostgreSQL Connection String Configured from User Specifications
-DB_CONNECTION_STRING = "postgresql://postgres:Bhavya#1266@localhost:1266/Site_IQ"
+DB_CONNECTION_STRING = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/Site_IQ")
 
 # ─────────────────────────────────────────────
 # Database Init
