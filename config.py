@@ -11,6 +11,10 @@ Weights sum to 1.0:
   environment    0.10
 """
 
+import os
+from dotenv import load_dotenv
+load_dotenv()  # loads DATABASE_URL from .env file if present
+
 # ─────────────────────────────────────────────
 # Scoring Layer Weights (sum = 1.0)
 # ─────────────────────────────────────────────
@@ -161,5 +165,5 @@ INGESTION_CONFIG = {
     "h3_tiling_resolution": 8,
     "auto_tile_threshold": 100000,
     "pg_cache_enabled": False,
-    "pg_connection_string": "postgresql://postgres:postgres@localhost:5432/Site_IQ",
+    "pg_connection_string": os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/Site_IQ"),
 }

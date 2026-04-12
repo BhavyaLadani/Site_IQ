@@ -6,6 +6,9 @@ Tracks user sign-up info and every login with date and time.
 """
 
 import os
+from urllib.parse import unquote, urlparse
+from dotenv import load_dotenv
+load_dotenv()  # loads DATABASE_URL from .env file if present
 import json
 from datetime import datetime, timedelta
 from typing import Optional
@@ -24,15 +27,81 @@ ACCESS_TOKEN_EXPIRE_HOURS = 24
 
 security = HTTPBearer(auto_error=False)
 
-# PostgreSQL Connection String Configured from User Specifications
-DB_CONNECTION_STRING = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/Site_IQ")
+# Primary: NeonDB cloud (from .env). Fallback: local PostgreSQL.
+_PRIMARY_DB = os.getenv("DATABASE_URL", "")
+_LOCAL_DB_URL = os.getenv("LOCAL_DATABASE_URL", "postgresql://postgres:Bhavya%231266@localhost:1266/Site_IQ")
+_RESOLVED_DB: str | None = None  # lazy singleton
 
-# ─────────────────────────────────────────────
-# Database Init
-# ─────────────────────────────────────────────
+def _safe_connect(url: str, **kwargs):
+    """Connect using a URL, safely decoding any percent-encoded characters.
+    Also bypasses ISP DNS by remapping known Neon hostnames to their resolved IPs.
+    """
+    parsed = urlparse(url)
+    password = unquote(parsed.password or "")
+    username = unquote(parsed.username or "")
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 5432
+    dbname = parsed.path.lstrip("/")
+
+    # Bypass DNS: remap Neon hostnames to resolved IPs so ISP DNS block doesn't matter
+    NEON_IP_MAP = {
+        "ap-southeast-1.aws.neon.tech": "13.228.46.236",
+    }
+    resolved_host = host
+    for domain, ip in NEON_IP_MAP.items():
+        if host.endswith(domain):
+            resolved_host = ip
+            break
+
+    # Parse sslmode from query string
+    options = {}
+    pg_options_parts = []
+    if parsed.query:
+        for part in parsed.query.split("&"):
+            if "=" in part:
+                k, v = part.split("=", 1)
+                if k in ("sslmode",):
+                    options[k] = v
+
+    # Neon requires the endpoint ID in pg options for SNI when connecting by IP
+    if resolved_host != host and "neon.tech" in host:
+        endpoint_id = host.split(".")[0]
+        pg_options_parts.append(f"endpoint={endpoint_id}")
+
+    if pg_options_parts:
+        options["options"] = f"endpoint={endpoint_id}"
+
+    return psycopg2.connect(
+        host=resolved_host, port=port, user=username,
+        password=password, dbname=dbname,
+        **options, **kwargs
+    )
+
+
+def _resolve_connection_string() -> str:
+    """Try NeonDB. If unreachable, fall back to local DB. Lazy — runs only once."""
+    if _PRIMARY_DB:
+        try:
+            conn = _safe_connect(_PRIMARY_DB, connect_timeout=5)
+            conn.close()
+            print("[DB] Active connection: NeonDB (cloud)")
+            return _PRIMARY_DB
+        except Exception as e:
+            print(f"[DB] NeonDB unreachable ({type(e).__name__}) — falling back to local PostgreSQL.")
+    print("[DB] Active connection: Local PostgreSQL")
+    return _LOCAL_DB_URL
+
+
 def get_db():
-    conn = psycopg2.connect(DB_CONNECTION_STRING)
-    return conn
+    """Get a database connection. Resolves which DB to use on first call."""
+    global _RESOLVED_DB
+    if _RESOLVED_DB is None:
+        _RESOLVED_DB = _resolve_connection_string()
+    return _safe_connect(_RESOLVED_DB)
+
+
+# Keep a simple string for any code that reads it directly
+DB_CONNECTION_STRING = _PRIMARY_DB or _LOCAL_DB_URL
 
 
 def init_db():
@@ -229,7 +298,7 @@ def authenticate_user(email: str, password: str) -> dict:
             conn.rollback()
         raise
     except psycopg2.OperationalError:
-        raise HTTPException(status_code=503, detail="Database is offline. Please start PostgreSQL in pgAdmin.")
+        raise HTTPException(status_code=503, detail="Database is offline. Please check your DATABASE_URL in the .env file.")
     except Exception as e:
         if conn:
             conn.rollback()

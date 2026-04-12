@@ -7,6 +7,8 @@ All endpoints wired to the real scoring engine (engine/scorer.py).
 import asyncio
 import io
 import os
+from dotenv import load_dotenv
+load_dotenv()  # loads DATABASE_URL from .env file if present
 import base64
 import time
 import textwrap
